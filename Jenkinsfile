@@ -1,91 +1,120 @@
 pipeline {
-  agent any
+    agent any
 
+    environment {
 
-  environment {
-    PROJECT_KEY = "maven-project"
+        PROJECT_KEY = "maven-project"
 
-    GROUP_ID    = "com.example"
-    ARTIFACT_ID = "hello-devops"
-    VERSION     = "1.0-SNAPSHOT"
-    SONAR_HOST  = "http://3.95.65.192:9000"
+        AWS_REGION = "us-east-1"
 
+        IMAGE_NAME = "hello-devops"
 
-    NEXUS_URL   = "98.93.74.236:8081"
-    NEXUS_REPO  = "maven-snapshot"
+        ECR_REPO = "933747314862.dkr.ecr.us-east-1.amazonaws.com/mydockerregistry"
 
-    DEPLOY_DIR  = "/opt/app"
-  }
+        SONAR_HOST = "http://3.95.65.192:9000"
 
-  stages {
+        EC2_HOST = "ubuntu@YOUR-EC2-PUBLIC-IP"
 
-    stage('Checkout') {
-      steps {
-        git branch: 'main',
-            url: 'https://github.com/prajwal-rijo/ci-with-artifact.git'
-      }
     }
 
-    stage('Build & Package') {
-      steps {
-        sh 'mvn clean package -DskipTests'
-      }
-    }
+    stages {
 
-    stage('Sonar Analysis') {
-      steps {
-        withSonarQubeEnv('sonarqube') {
-          sh '''
-            mvn sonar:sonar \
-              -Dsonar.projectKey=${PROJECT_KEY} \
-              -Dsonar.projectName=${PROJECT_KEY} \
-              -Dsonar.host.url=${SONAR_HOST}
-          '''
+        stage('Checkout Source Code') {
+            steps {
+                git branch: 'main',
+                url: 'https://github.com/prajwal-rijo/ci-with-docker-ECR.git'
+            }
         }
-      }
+
+        stage('Build WAR File') {
+            steps {
+                sh 'mvn clean package -DskipTests'
+            }
+        }
+
+        stage('SonarQube Analysis') {
+            steps {
+                withSonarQubeEnv('sonarqube') {
+
+                    sh '''
+                    mvn sonar:sonar \
+                    -Dsonar.projectKey=${PROJECT_KEY} \
+                    -Dsonar.projectName=${PROJECT_KEY} \
+                    -Dsonar.host.url=${SONAR_HOST}
+                    '''
+                }
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+
+                sh '''
+                docker build -t ${IMAGE_NAME} .
+                '''
+            }
+        }
+
+        stage('Tag Docker Image') {
+            steps {
+
+                sh '''
+                docker tag ${IMAGE_NAME}:latest ${ECR_REPO}:latest
+                '''
+            }
+        }
+
+        stage('Login to AWS ECR') {
+            steps {
+
+                sh '''
+                aws ecr get-login-password --region ${AWS_REGION} | \
+                docker login --username AWS --password-stdin 975050024946.dkr.ecr.us-east-1.amazonaws.com
+                '''
+            }
+        }
+
+        stage('Push Docker Image to ECR') {
+            steps {
+
+                sh '''
+                docker push ${ECR_REPO}:latest
+                '''
+            }
+        }
+
+        stage('Deploy to EC2') {
+            steps {
+
+                sh '''
+                ssh -o StrictHostKeyChecking=no ${EC2_HOST} "
+
+                docker pull ${ECR_REPO}:latest
+
+                docker stop hello-devops-container || true
+
+                docker rm hello-devops-container || true
+
+                docker run -d \
+                --name hello-devops-container \
+                -p 8085:8080 \
+                ${ECR_REPO}:latest
+                "
+                '''
+            }
+        }
     }
 
-    
+    post {
 
-    stage('Upload Artifact to Nexus') {
-      steps {
-        nexusArtifactUploader(
-  nexusVersion: 'nexus3',
-  protocol: 'http',
-  nexusUrl: "${NEXUS_URL}",
-          repository: "${NEXUS_REPO}",
-          credentialsId: 'nexus-creds',
-          groupId: "${GROUP_ID}",
-          version: "${VERSION}",
-          artifacts: [
-            [
-              artifactId: "${ARTIFACT_ID}",
-              classifier: '',
-              file: "target/${ARTIFACT_ID}.war",
-              type: 'war'
-            ]
-          ]
-        )
-      }
-    }
+        success {
 
-    stage('Deploy on EC2 (Local)') {
-      steps {
-        sh '''
-          mkdir -p ${DEPLOY_DIR}
-cp target/${ARTIFACT_ID}.war ${DEPLOY_DIR}/${ARTIFACT_ID}.war
-          echo "WAR copied to ${DEPLOY_DIR}"
-        '''
-      }
-    }
-  }
+            echo '✅ FULL CI/CD PIPELINE SUCCESSFUL'
+        }
 
-  post {
-    success {
-      echo "✅ FULL PIPELINE SUCCESSFUL"
+        failure {
+
+            echo '❌ PIPELINE FAILED'
+        }
     }
-    failure {
-      echo "❌ PIPELINE FAILED"
-    }
-  }
 }

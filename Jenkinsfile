@@ -11,9 +11,9 @@ pipeline {
 
         ECR_REPO = "933747314862.dkr.ecr.us-east-1.amazonaws.com/mydockerregistry"
 
-        SONAR_HOST = "http://3.95.65.192:9000"
+        SONAR_HOST = "http://98.91.26.146:9000"
 
-        EC2_HOST = "ubuntu@YOUR-EC2-PUBLIC-IP"
+        EC2_HOST = "ubuntu@3.95.254.89"
 
     }
 

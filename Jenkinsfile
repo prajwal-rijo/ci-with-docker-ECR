@@ -124,7 +124,7 @@ pipeline {
         }
     }
 
-    post {
+        post {
 
         success {
             echo '✅ FULL CI/CD PIPELINE SUCCESSFUL'
@@ -139,4 +139,3 @@ pipeline {
         }
     }
 }
-

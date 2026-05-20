@@ -98,53 +98,36 @@ pipeline {
         }
 
         stage('Deploy to EC2') {
-            steps {
+    steps {
 
-                withCredentials([[
-                    $class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'aws-creds'
-                ]]) {
+        sshagent(['ec2-ssh-key']) {
 
-                    sh """
-                    ssh -o StrictHostKeyChecking=no ${EC2_HOST} '
+            withCredentials([[
+                $class: 'AmazonWebServicesCredentialsBinding',
+                credentialsId: 'aws-creds'
+            ]]) {
 
-                    aws ecr get-login-password --region ${AWS_REGION} | \
-                    docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                sh """
+                ssh -o StrictHostKeyChecking=no ${EC2_HOST} '
 
-                    docker pull ${ECR_REPO}:${IMAGE_TAG}
+                aws ecr get-login-password --region ${AWS_REGION} | \
+                docker login --username AWS --password-stdin ${ECR_REGISTRY}
 
-                    docker stop hello-devops-container || true
+                docker pull ${ECR_REPO}:${IMAGE_TAG}
 
-                    docker rm hello-devops-container || true
+                docker stop hello-devops-container || true
 
-                    docker image prune -f || true
+                docker rm hello-devops-container || true
 
-                    docker run -d \
-                    --name hello-devops-container \
-                    -p 8085:8080 \
-                    ${ECR_REPO}:${IMAGE_TAG}
-                    '
-                    """
-                }
+                docker image prune -f || true
+
+                docker run -d \
+                --name hello-devops-container \
+                -p 8085:8080 \
+                ${ECR_REPO}:${IMAGE_TAG}
+                '
+                """
             }
-        }
-    }
-
-    post {
-
-        success {
-
-            echo '✅ FULL CI/CD PIPELINE SUCCESSFUL'
-        }
-
-        failure {
-
-            echo '❌ PIPELINE FAILED'
-        }
-
-        always {
-
-            sh 'docker system prune -f || true'
         }
     }
 }

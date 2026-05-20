@@ -97,58 +97,42 @@ pipeline {
             }
         }
 
-        stage('Deploy to EC2') {
-            steps {
+stage('Deploy to EC2') {
+    steps {
 
-                sshagent(['ec2-ssh-key']) {
+        sshagent(['ec2-ssh-key']) {
 
-                    withCredentials([[
-                        $class: 'AmazonWebServicesCredentialsBinding',
-                        credentialsId: 'aws-creds'
-                    ]]) {
+            withCredentials([[
+                $class: 'AmazonWebServicesCredentialsBinding',
+                credentialsId: 'aws-creds'
+            ]]) {
 
-                        sh """
-                        ssh -o StrictHostKeyChecking=no ${EC2_HOST} '
+                sh """
+                ssh -o StrictHostKeyChecking=no ${EC2_HOST} '
 
-                        aws ecr get-login-password --region ${AWS_REGION} | \
-                        docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+                export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+                export AWS_DEFAULT_REGION=${AWS_REGION}
 
-                        docker pull ${ECR_REPO}:${IMAGE_TAG}
+                aws ecr get-login-password --region ${AWS_REGION} | \
+                docker login --username AWS --password-stdin ${ECR_REGISTRY}
 
-                        docker stop hello-devops-container || true
+                docker pull ${ECR_REPO}:${IMAGE_TAG}
 
-                        docker rm hello-devops-container || true
+                docker stop hello-devops-container || true
 
-                        docker image prune -f || true
+                docker rm hello-devops-container || true
 
-                        docker run -d \
-                        --name hello-devops-container \
-                        -p 8085:8080 \
-                        ${ECR_REPO}:${IMAGE_TAG}
-                        '
-                        """
-                    }
-                }
+                docker image prune -f || true
+
+                docker run -d \
+                --name hello-devops-container \
+                -p 8085:8080 \
+                ${ECR_REPO}:${IMAGE_TAG}
+
+                '
+                """
             }
         }
     }
-
-    post {
-
-        success {
-
-            echo '✅ FULL CI/CD PIPELINE SUCCESSFUL'
-        }
-
-        failure {
-
-            echo '❌ PIPELINE FAILED'
-        }
-
-        always {
-
-            sh 'docker system prune -f || true'
-        }
-    }
 }
-

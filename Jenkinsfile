@@ -9,18 +9,22 @@ pipeline {
 
         IMAGE_NAME = "hello-devops"
 
-        ECR_REPO = "933747314862.dkr.ecr.us-east-1.amazonaws.com/mydockerregistry"
+        IMAGE_TAG = "latest"
+
+        ECR_REGISTRY = "933747314862.dkr.ecr.us-east-1.amazonaws.com"
+
+        ECR_REPO = "${ECR_REGISTRY}/mydockerregistry"
 
         SONAR_HOST = "http://98.91.26.146:9000"
 
         EC2_HOST = "ubuntu@3.95.254.89"
-
     }
 
     stages {
 
         stage('Checkout Source Code') {
             steps {
+
                 git branch: 'main',
                 url: 'https://github.com/prajwal-rijo/ci-with-docker-ECR.git'
             }
@@ -28,20 +32,24 @@ pipeline {
 
         stage('Build WAR File') {
             steps {
-                sh 'mvn clean package -DskipTests'
+
+                sh '''
+                mvn clean package -DskipTests
+                '''
             }
         }
 
         stage('SonarQube Analysis') {
             steps {
+
                 withSonarQubeEnv('sonarqube') {
 
-                    sh '''
+                    sh """
                     mvn sonar:sonar \
                     -Dsonar.projectKey=${PROJECT_KEY} \
                     -Dsonar.projectName=${PROJECT_KEY} \
                     -Dsonar.host.url=${SONAR_HOST}
-                    '''
+                    """
                 }
             }
         }
@@ -49,58 +57,75 @@ pipeline {
         stage('Build Docker Image') {
             steps {
 
-                sh '''
-                docker build -t ${IMAGE_NAME} .
-                '''
+                sh """
+                docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+                """
             }
         }
 
         stage('Tag Docker Image') {
             steps {
 
-                sh '''
-                docker tag ${IMAGE_NAME}:latest ${ECR_REPO}:latest
-                '''
+                sh """
+                docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${ECR_REPO}:${IMAGE_TAG}
+                """
             }
         }
 
         stage('Login to AWS ECR') {
             steps {
 
-                sh '''
-                aws ecr get-login-password --region ${AWS_REGION} | \
-                docker login --username AWS --password-stdin 975050024946.dkr.ecr.us-east-1.amazonaws.com
-                '''
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding',
+                    credentialsId: 'aws-creds'
+                ]]) {
+
+                    sh """
+                    aws ecr get-login-password --region ${AWS_REGION} | \
+                    docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                    """
+                }
             }
         }
 
         stage('Push Docker Image to ECR') {
             steps {
 
-                sh '''
-                docker push ${ECR_REPO}:latest
-                '''
+                sh """
+                docker push ${ECR_REPO}:${IMAGE_TAG}
+                """
             }
         }
 
         stage('Deploy to EC2') {
             steps {
 
-                sh '''
-                ssh -o StrictHostKeyChecking=no ${EC2_HOST} "
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding',
+                    credentialsId: 'aws-creds'
+                ]]) {
 
-                docker pull ${ECR_REPO}:latest
+                    sh """
+                    ssh -o StrictHostKeyChecking=no ${EC2_HOST} '
 
-                docker stop hello-devops-container || true
+                    aws ecr get-login-password --region ${AWS_REGION} | \
+                    docker login --username AWS --password-stdin ${ECR_REGISTRY}
 
-                docker rm hello-devops-container || true
+                    docker pull ${ECR_REPO}:${IMAGE_TAG}
 
-                docker run -d \
-                --name hello-devops-container \
-                -p 8085:8080 \
-                ${ECR_REPO}:latest
-                "
-                '''
+                    docker stop hello-devops-container || true
+
+                    docker rm hello-devops-container || true
+
+                    docker image prune -f || true
+
+                    docker run -d \
+                    --name hello-devops-container \
+                    -p 8085:8080 \
+                    ${ECR_REPO}:${IMAGE_TAG}
+                    '
+                    """
+                }
             }
         }
     }
@@ -116,5 +141,11 @@ pipeline {
 
             echo '❌ PIPELINE FAILED'
         }
+
+        always {
+
+            sh 'docker system prune -f || true'
+        }
     }
 }
+
